@@ -1,0 +1,29 @@
+services:
+  - type: web
+    name: smart-salon
+    runtime: docker
+    plan: free
+    region: singapore
+    envVars:
+      - key: DB_HOST
+        sync: false
+      - key: DB_PORT
+        sync: false
+      - key: DB_NAME
+        sync: false
+      - key: DB_USER
+        sync: false
+      - key: DB_PASS
+        sync: false
+      - key: SMS_PROVIDER
+        value: philsms
+      - key: SMS_ENABLED
+        value: "true"
+      - key: PHILSMS_API_KEY
+        sync: false
+      - key: PHILSMS_SENDER_ID
+        value: PhilSMS
+      - key: BRAND
+        value: "Glow Smart Salon"
+      - key: CRON_KEY
+        generateValue: true
