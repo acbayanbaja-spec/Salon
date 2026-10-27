@@ -27,9 +27,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             else {
                 $db->beginTransaction();
                 $db->prepare("INSERT INTO account(username,password,role) VALUES(?,?,'staff')")->execute([$em, password_hash($pw, PASSWORD_DEFAULT)]);
-                $aid = $db->lastInsertId();
+                $aid = db_last_id($db, 'account', 'account_id');
                 $db->prepare("INSERT INTO staff(account_id,name,phone) VALUES(?,?,?)")->execute([$aid, $n, $ph ?: null]);
-                $new = $db->lastInsertId();
+                $new = db_last_id($db, 'staff', 'staff_id');
                 $db->commit();
                 setup_defaults($db, (int)$new, null);
                 flash('Staff added with all services and default hours (Mon-Sat, 9:00 AM - 5:00 PM). Adjust them below if needed.');
@@ -123,7 +123,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             elseif (!ctype_digit((string)$du) || (int)$du < 15 || (int)$du > 480) flash('&#9888; Duration must be between 15 and 480 minutes.');
             else {
                 try {
-                    if ($a === 'svc_add') { $db->prepare("INSERT INTO service(name,price,duration_min) VALUES(?,?,?)")->execute([$n, (float)$pr, (int)$du]); setup_defaults($db, null, (int)$db->lastInsertId()); }
+                    if ($a === 'svc_add') { $db->prepare("INSERT INTO service(name,price,duration_min) VALUES(?,?,?)")->execute([$n, (float)$pr, (int)$du]); setup_defaults($db, null, (int)db_last_id($db, 'service', 'service_id')); }
                     else $db->prepare("UPDATE service SET name=?,price=?,duration_min=? WHERE service_id=?")->execute([$n, (float)$pr, (int)$du, $id]);
                     flash($a === 'svc_add' ? 'Service added and assigned to all active staff (change this under Staff).' : 'Service updated.');
                 } catch (PDOException $x) {
@@ -186,11 +186,14 @@ foreach ($db->query("SELECT staff_id,name FROM staff WHERE active=1 ORDER BY nam
 //  PAGES
 // =====================================================
 if ($p === 'dash') {
-    $c = $db->prepare("SELECT SUM(appt_date=? AND active_slot=1) today, SUM(status='pending') pend, SUM(status='completed') done FROM appointment");
+    $c = $db->prepare("SELECT COUNT(CASE WHEN appt_date=? AND active_slot=1 THEN 1 END) today, COUNT(CASE WHEN status='pending' THEN 1 END) pend, COUNT(CASE WHEN status='completed' THEN 1 END) done FROM appointment");
     $c->execute([$today]);
     $c = $c->fetch();
     $cust = (int)$db->query("SELECT COUNT(*) FROM customer")->fetchColumn();
-    $inc  = $db->prepare("SELECT COALESCE(SUM(amount),0) FROM payment WHERE status='paid' AND DATE_FORMAT(paid_at,'%Y-%m')=?");
+    $incSql = db_is_pg($db)
+        ? "SELECT COALESCE(SUM(amount),0) FROM payment WHERE status='paid' AND TO_CHAR(paid_at,'YYYY-MM')=?"
+        : "SELECT COALESCE(SUM(amount),0) FROM payment WHERE status='paid' AND DATE_FORMAT(paid_at,'%Y-%m')=?";
+    $inc  = $db->prepare($incSql);
     $inc->execute([date('Y-m')]);
     $problems = setup_problems($db);
     if ($problems): ?>

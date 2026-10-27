@@ -32,6 +32,7 @@ if (getenv('VERCEL') || !empty($_ENV['VERCEL'])) {
 // =====================================================
 //  SETTINGS -- environment variables win over defaults
 // =====================================================
+$dbDriver = 'mysql';
 $dbHost = getenv('DB_HOST') ?: (getenv('MYSQL_HOST') ?: 'localhost');
 $dbPort = getenv('DB_PORT') ?: (getenv('MYSQL_PORT') ?: '3306');
 $dbName = getenv('DB_NAME') ?: (getenv('MYSQL_DATABASE') ?: 'kap_salon');
@@ -39,19 +40,28 @@ $dbUser = getenv('DB_USER') ?: (getenv('MYSQL_USER') ?: 'root');
 $dbPass = getenv('DB_PASS') !== false ? getenv('DB_PASS') : (getenv('MYSQL_PASSWORD') !== false ? getenv('MYSQL_PASSWORD') : '');
 $dbSslCa = getenv('DB_SSL_CA') ?: null;
 
-// Support full connection URLs from cloud providers (e.g. Aiven, Render, Heroku)
-$dbUrl = getenv('DATABASE_URL') ?: getenv('MYSQL_URL');
+// Support full connection URLs from cloud providers (e.g. Supabase, Aiven, Render, Heroku)
+$dbUrl = getenv('DATABASE_URL') ?: (getenv('MYSQL_URL') ?: getenv('DIRECT_URL'));
 if ($dbUrl) {
     $parts = parse_url($dbUrl);
     if ($parts) {
+        $scheme = strtolower($parts['scheme'] ?? '');
+        if ($scheme === 'postgres' || $scheme === 'postgresql') {
+            $dbDriver = 'pgsql';
+        }
         if (!empty($parts['host'])) $dbHost = $parts['host'];
         if (!empty($parts['port'])) $dbPort = $parts['port'];
         if (!empty($parts['user'])) $dbUser = urldecode($parts['user']);
         if (isset($parts['pass']))  $dbPass = urldecode($parts['pass']);
         if (!empty($parts['path'])) $dbName = ltrim($parts['path'], '/');
     }
+} elseif (getenv('DB_DRIVER')) {
+    $dbDriver = strtolower(getenv('DB_DRIVER'));
+} elseif (strpos($dbHost, 'supabase.co') !== false || $dbPort == 5432 || $dbPort == 6543) {
+    $dbDriver = 'pgsql';
 }
 
+define('DB_DRIVER', $dbDriver);
 define('DB_HOST', $dbHost);
 define('DB_PORT', $dbPort);
 define('DB_NAME', $dbName);
@@ -84,25 +94,31 @@ ini_set('session.cookie_samesite', 'Lax');
 session_start();
 
 try {
-    $dsn = "mysql:host=" . DB_HOST . ";port=" . DB_PORT . ";dbname=" . DB_NAME . ";charset=utf8mb4";
     $options = [
         PDO::ATTR_ERRMODE            => PDO::ERRMODE_EXCEPTION,
         PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
     ];
 
-    // SSL support for Cloud MySQL (e.g. Aiven)
-    $isCloudDb = (strpos(DB_HOST, 'aivencloud.com') !== false) || getenv('DB_SSL') === 'true' || getenv('DB_SSL') === '1';
-    if ($isCloudDb || !empty($dbSslCa)) {
-        if (!empty($dbSslCa)) {
-            if (file_exists($dbSslCa)) {
-                $options[PDO::MYSQL_ATTR_SSL_CA] = $dbSslCa;
-            } else {
-                $caFile = sys_get_temp_dir() . '/aiven-ca.pem';
-                @file_put_contents($caFile, $dbSslCa);
-                $options[PDO::MYSQL_ATTR_SSL_CA] = $caFile;
+    if (DB_DRIVER === 'pgsql') {
+        $dsn = "pgsql:host=" . DB_HOST . ";port=" . DB_PORT . ";dbname=" . DB_NAME . ";sslmode=require";
+        // Required for PgBouncer / Supabase transaction pooler:
+        $options[PDO::ATTR_EMULATE_PREPARES] = true;
+    } else {
+        $dsn = "mysql:host=" . DB_HOST . ";port=" . DB_PORT . ";dbname=" . DB_NAME . ";charset=utf8mb4";
+        // SSL support for Cloud MySQL (e.g. Aiven)
+        $isCloudDb = (strpos(DB_HOST, 'aivencloud.com') !== false) || getenv('DB_SSL') === 'true' || getenv('DB_SSL') === '1';
+        if ($isCloudDb || !empty($dbSslCa)) {
+            if (!empty($dbSslCa)) {
+                if (file_exists($dbSslCa)) {
+                    $options[PDO::MYSQL_ATTR_SSL_CA] = $dbSslCa;
+                } else {
+                    $caFile = sys_get_temp_dir() . '/aiven-ca.pem';
+                    @file_put_contents($caFile, $dbSslCa);
+                    $options[PDO::MYSQL_ATTR_SSL_CA] = $caFile;
+                }
+            } elseif (defined('PDO::MYSQL_ATTR_SSL_VERIFY_SERVER_CERT')) {
+                $options[PDO::MYSQL_ATTR_SSL_VERIFY_SERVER_CERT] = false;
             }
-        } elseif (defined('PDO::MYSQL_ATTR_SSL_VERIFY_SERVER_CERT')) {
-            $options[PDO::MYSQL_ATTR_SSL_VERIFY_SERVER_CERT] = false;
         }
     }
 
@@ -111,8 +127,36 @@ try {
     die('Database connection failed: ' . htmlspecialchars($x->getMessage()) . '<br><br>Tip: Check DB_HOST, DB_PORT, DB_NAME, DB_USER, DB_PASS or DATABASE_URL in your environment / .env file.');
 }
 
-// Keep MySQL's clock (created_at timestamps) in the same timezone as PHP, whatever the server's own setting is.
-$db->exec("SET time_zone = '" . (new DateTime('now'))->format('P') . "'");
+// Driver compatibility helper
+function db_is_pg(PDO $db): bool {
+    static $isPg = null;
+    if ($isPg === null) {
+        $isPg = ($db->getAttribute(PDO::ATTR_DRIVER_NAME) === 'pgsql');
+    }
+    return $isPg;
+}
+
+function db_last_id(PDO $db, string $table = '', string $col = '') {
+    if (db_is_pg($db) && $table !== '' && $col !== '') {
+        try {
+            return $db->lastInsertId("{$table}_{$col}_seq");
+        } catch (Exception $e) {
+            return $db->lastInsertId();
+        }
+    }
+    return $db->lastInsertId();
+}
+
+function db_ts_expr(PDO $db, string $dCol, string $tCol): string {
+    return db_is_pg($db) ? "({$dCol} + {$tCol})" : "TIMESTAMP({$dCol}, {$tCol})";
+}
+
+// Keep clock in same timezone
+if (db_is_pg($db)) {
+    $db->exec("SET TIME ZONE 'Asia/Manila'");
+} else {
+    $db->exec("SET time_zone = '" . (new DateTime('now'))->format('P') . "'");
+}
 
 // Seed a default admin account on first run.
 if (!$db->query("SELECT COUNT(*) FROM account WHERE role='admin'")->fetchColumn()) {

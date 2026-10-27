@@ -50,7 +50,7 @@ $today = date('Y-m-d');
 $custUrl = 'staff.php?p=customer&cid=';
 
 if ($p === 'dash') {
-    $c = $db->prepare("SELECT SUM(appt_date=? AND active_slot=1) today, SUM(status='pending') pend, SUM(active_slot=1 AND appt_date>=?) up FROM appointment WHERE staff_id=?");
+    $c = $db->prepare("SELECT COUNT(CASE WHEN appt_date=? AND active_slot=1 THEN 1 END) today, COUNT(CASE WHEN status='pending' THEN 1 END) pend, COUNT(CASE WHEN active_slot=1 AND appt_date>=? THEN 1 END) up FROM appointment WHERE staff_id=?");
     $c->execute([$today, $today, $sid]);
     $c = $c->fetch(); ?>
     <div class=statgrid>

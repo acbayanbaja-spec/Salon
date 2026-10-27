@@ -30,7 +30,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $db->beginTransaction();
         $db->prepare("INSERT INTO account(username,password,role) VALUES(?,?,'customer')")
            ->execute([$v['email'], password_hash($pw, PASSWORD_DEFAULT)]);
-        $aid = $db->lastInsertId();
+        $aid = db_last_id($db, 'account', 'account_id');
         $db->prepare("INSERT INTO customer(account_id,name,email,phone) VALUES(?,?,?,?)")
            ->execute([$aid, $v['name'], $v['email'], $v['phone']]);
         $db->commit();

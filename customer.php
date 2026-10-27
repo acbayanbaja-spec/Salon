@@ -162,10 +162,11 @@ function my_appts(array $rows, $mode) {
 //  PAGES
 // =====================================================
 if ($p === 'dash') {
-    $c = $db->prepare("SELECT SUM(active_slot=1 AND appt_date>=?) up, SUM(status='completed') done, COUNT(*) total FROM appointment WHERE customer_id=?");
+    $c = $db->prepare("SELECT COUNT(CASE WHEN active_slot=1 AND appt_date>=? THEN 1 END) up, COUNT(CASE WHEN status='completed' THEN 1 END) done, COUNT(*) total FROM appointment WHERE customer_id=?");
     $c->execute([$today, $cid]);
     $c = $c->fetch();
-    $next = appt_rows($db, "a.customer_id=? AND a.active_slot=1 AND TIMESTAMP(a.appt_date,a.start_time)>?", [$cid, date('Y-m-d H:i:s')], 50);
+    $tsExpr = db_ts_expr($db, 'a.appt_date', 'a.start_time');
+    $next = appt_rows($db, "a.customer_id=? AND a.active_slot=1 AND {$tsExpr}>?", [$cid, date('Y-m-d H:i:s')], 50);
     $next = $next ? end($next) : null;   // rows are newest-first, so the last one is the soonest
     ?>
     <div class=statgrid>

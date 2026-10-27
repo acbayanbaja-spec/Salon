@@ -115,7 +115,7 @@ function appt_save(PDO $db, array $a, $id = null) {
         } else {
             $db->prepare("INSERT INTO appointment(customer_id,staff_id,service_id,appt_date,start_time,end_time,status,notes,active_slot) VALUES(?,?,?,?,?,?,'pending',?,1)")
                ->execute([(int)$a['customer_id'], $sid, $svc['service_id'], $date, $startT, $endT, $a['notes'] ?? null]);
-            $id = (int)$db->lastInsertId();
+            $id = (int)db_last_id($db, 'appointment', 'appointment_id');
         }
         $db->commit();
         return [true, (int)$id];
@@ -153,7 +153,11 @@ function setting_get(PDO $db, $k, $default = '') {
 }
 function setting_set(PDO $db, $k, $v) {
     try {
-        $db->prepare("INSERT INTO setting(skey,svalue) VALUES(?,?) ON DUPLICATE KEY UPDATE svalue=VALUES(svalue)")->execute([$k, $v]);
+        if (db_is_pg($db)) {
+            $db->prepare("INSERT INTO setting(skey,svalue) VALUES(?,?) ON CONFLICT (skey) DO UPDATE SET svalue=EXCLUDED.svalue")->execute([$k, $v]);
+        } else {
+            $db->prepare("INSERT INTO setting(skey,svalue) VALUES(?,?) ON DUPLICATE KEY UPDATE svalue=VALUES(svalue)")->execute([$k, $v]);
+        }
         return true;
     } catch (PDOException $e) { return false; }
 }
@@ -327,8 +331,9 @@ function notify_appt(PDO $db, $id, $type) {
 
 /** Send reminders for confirmed/rescheduled appointments starting within REMINDER_HOURS. Returns how many. */
 function send_due_reminders(PDO $db) {
+    $ts = db_ts_expr($db, 'appt_date', 'start_time');
     $q = $db->prepare("SELECT appointment_id FROM appointment WHERE status IN ('confirmed','rescheduled') AND reminder_sent=0
-        AND TIMESTAMP(appt_date,start_time) > ? AND TIMESTAMP(appt_date,start_time) <= ?");
+        AND {$ts} > ? AND {$ts} <= ?");
     $q->execute([date('Y-m-d H:i:s'), date('Y-m-d H:i:s', strtotime('+' . REMINDER_HOURS . ' hours'))]);
     $n = 0;
     foreach ($q->fetchAll() as $r) {
@@ -600,11 +605,18 @@ function try_login(PDO $db, array $roles, $wrongPortalMsg) {
 // =====================================================
 /** Give a new service to every active staff member, and/or a new staff member every active service + default hours (Mon-Sat 9-5). */
 function setup_defaults(PDO $db, $staffId = null, $serviceId = null) {
+    $isPg = db_is_pg($db);
     if ($serviceId) {
-        $db->prepare("INSERT IGNORE INTO staff_service(staff_id,service_id) SELECT staff_id,? FROM staff WHERE active=1")->execute([$serviceId]);
+        $sql = $isPg
+            ? "INSERT INTO staff_service(staff_id,service_id) SELECT staff_id,? FROM staff WHERE active=1 ON CONFLICT (staff_id,service_id) DO NOTHING"
+            : "INSERT IGNORE INTO staff_service(staff_id,service_id) SELECT staff_id,? FROM staff WHERE active=1";
+        $db->prepare($sql)->execute([$serviceId]);
     }
     if ($staffId) {
-        $db->prepare("INSERT IGNORE INTO staff_service(staff_id,service_id) SELECT ?,service_id FROM service WHERE active=1")->execute([$staffId]);
+        $sql = $isPg
+            ? "INSERT INTO staff_service(staff_id,service_id) SELECT ?,service_id FROM service WHERE active=1 ON CONFLICT (staff_id,service_id) DO NOTHING"
+            : "INSERT IGNORE INTO staff_service(staff_id,service_id) SELECT ?,service_id FROM service WHERE active=1";
+        $db->prepare($sql)->execute([$staffId]);
         set_default_hours($db, $staffId);
     }
 }
@@ -635,15 +647,23 @@ function setup_problems(PDO $db) {
 /** One-click repair for existing data. Returns how many things were fixed. */
 function setup_autofix(PDO $db) {
     $n = 0;
+    $isPg = db_is_pg($db);
+    $insStaffSql = $isPg
+        ? "INSERT INTO staff_service(staff_id,service_id) SELECT ?,service_id FROM service WHERE active=1 ON CONFLICT (staff_id,service_id) DO NOTHING"
+        : "INSERT IGNORE INTO staff_service(staff_id,service_id) SELECT ?,service_id FROM service WHERE active=1";
+    $insSvcSql = $isPg
+        ? "INSERT INTO staff_service(staff_id,service_id) SELECT staff_id,? FROM staff WHERE active=1 ON CONFLICT (staff_id,service_id) DO NOTHING"
+        : "INSERT IGNORE INTO staff_service(staff_id,service_id) SELECT staff_id,? FROM staff WHERE active=1";
+
     foreach ($db->query("SELECT staff_id FROM staff WHERE active=1")->fetchAll(PDO::FETCH_COLUMN) as $sid) {
         $c = $db->prepare("SELECT COUNT(*) FROM staff_service WHERE staff_id=?"); $c->execute([$sid]);
-        if (!$c->fetchColumn()) { $db->prepare("INSERT IGNORE INTO staff_service(staff_id,service_id) SELECT ?,service_id FROM service WHERE active=1")->execute([$sid]); $n++; }
+        if (!$c->fetchColumn()) { $db->prepare($insStaffSql)->execute([$sid]); $n++; }
         $c = $db->prepare("SELECT COUNT(*) FROM staff_schedule WHERE staff_id=?"); $c->execute([$sid]);
         if (!$c->fetchColumn()) { set_default_hours($db, $sid); $n++; }
     }
     foreach ($db->query("SELECT sv.service_id FROM service sv WHERE sv.active=1 AND NOT EXISTS
         (SELECT 1 FROM staff_service ss JOIN staff s ON s.staff_id=ss.staff_id WHERE ss.service_id=sv.service_id AND s.active=1)")->fetchAll(PDO::FETCH_COLUMN) as $svc) {
-        $db->prepare("INSERT IGNORE INTO staff_service(staff_id,service_id) SELECT staff_id,? FROM staff WHERE active=1")->execute([$svc]); $n++;
+        $db->prepare($insSvcSql)->execute([$svc]); $n++;
     }
     return $n;
 }
