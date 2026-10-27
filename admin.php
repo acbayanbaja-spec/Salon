@@ -84,6 +84,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             elseif (!preg_match('/^[A-Za-z0-9_-]{0,11}$/', $snd)) flash('&#9888; Sender ID: letters, numbers, and dashes only, up to 11 characters (or leave blank).');
             else {
                 setting_set($db, 'sms_enabled', !empty($_POST['enabled']) ? '1' : '0');
+                setting_set($db, 'sms_demo', !empty($_POST['demo']) ? '1' : '0');
                 setting_set($db, 'sms_provider', $prov);
                 if (trim($_POST['key'] ?? '') !== '') setting_set($db, 'sms_key', trim($_POST['key']));
                 setting_set($db, 'sms_sender', $snd);
@@ -388,11 +389,14 @@ if ($p === 'sms') {
     $masked = $cfg['has_key'] ? str_repeat('&bull;', 8) . e(substr($cfg['key'], -4)) : ''; ?>
     <?php if (!setting_ready($db)): ?><div class="msg bad">Import <b>upgrade.sql</b> in phpMyAdmin first (it adds the table that stores these settings).</div><?php endif; ?>
     <div class=box>
-        <h3>SMS notifications <?= $cfg['on'] ? tag('sent') . ' ON' : tag('not_configured') . ' OFF' ?></h3>
+        <h3>SMS notifications <?= $cfg['on'] ? tag('sent') . ' ON' : tag('not_configured') . ' OFF' ?> <?= !empty($cfg['demo']) ? "<span class='tag ok' style='font-size:.8rem;vertical-align:middle'>🎓 DEMO MODE ACTIVE</span>" : '' ?></h3>
         <p style="color:var(--muted)">Customers get an SMS (plus the in-app notification) when they book, when it is confirmed, rescheduled, cancelled or completed, when payment is received, and 24 hours before the appointment.
             Configured for <b>PhilSMS</b> (philsms.com) and <b>Semaphore</b> (semaphore.co). Enter your credentials below.</p>
         <form method=post><?= tok() ?><input type=hidden name=a value=sms_save>
-            <label style="font-weight:400"><input type=checkbox name=enabled value=1 style="width:auto;margin-right:6px" <?= $cfg['enabled'] ? 'checked' : '' ?>> Turn on SMS notifications</label>
+            <div style="display:flex;gap:18px;flex-wrap:wrap;align-items:center;margin-bottom:12px">
+                <label style="font-weight:400"><input type=checkbox name=enabled value=1 style="width:auto;margin-right:6px" <?= $cfg['enabled'] ? 'checked' : '' ?>> Turn on SMS notifications</label>
+                <label style="font-weight:500;color:#0c5460;background:#d1ecf1;padding:4px 10px;border-radius:6px;border:1px solid #bee5eb"><input type=checkbox name=demo value=1 style="width:auto;margin-right:6px" <?= !empty($cfg['demo']) ? 'checked' : '' ?>> 🎓 Academic Demo / Presentation Mode <small style="font-weight:normal;color:#495057">(Simulates instant delivery while Sender ID review is pending)</small></label>
+            </div>
             <div class=row style="margin-top:10px">
                 <div>
                     <label>Provider</label>

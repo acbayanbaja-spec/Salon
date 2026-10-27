@@ -172,8 +172,9 @@ function sms_cfg(PDO $db) {
     $key = trim((string)setting_get($db, 'sms_key', $defaultKey));
     $defaultEnabled = defined('SMS_ENABLED') ? SMS_ENABLED : false;
     $enabled = setting_get($db, 'sms_enabled', $defaultEnabled ? '1' : '0') === '1';
+    $demo = setting_get($db, 'sms_demo', '0') === '1';
     $has = $key !== '' && $key !== 'your-semaphore-api-key' && $key !== 'your-philsms-api-token';
-    $defaultSender = defined('SMS_SENDER') ? SMS_SENDER : ($provider === 'philsms' ? 'PhilSMS' : '');
+    $defaultSender = defined('SMS_SENDER') ? SMS_SENDER : ($provider === 'philsms' ? 'GLOWSALON' : '');
     $defaultUrl = $provider === 'philsms' ? 'https://dashboard.philsms.com/api/v3/sms/send' : 'https://api.semaphore.co/api/v4/messages';
     $rawUrl = (string)setting_get($db, 'sms_url', (defined('SMS_URL') && SMS_URL !== '' ? SMS_URL : $defaultUrl));
     if (strpos($rawUrl, 'app.philsms.com') !== false) {
@@ -182,8 +183,9 @@ function sms_cfg(PDO $db) {
     return [
         'provider' => $provider,
         'enabled'  => $enabled,
+        'demo'     => $demo,
         'has_key'  => $has,
-        'on'       => $enabled && $has,
+        'on'       => $enabled && ($has || $demo),
         'key'      => $key,
         'sender'   => trim((string)setting_get($db, 'sms_sender', $defaultSender)),
         'url'      => $rawUrl,
@@ -196,6 +198,13 @@ function sms_send_detail(PDO $db, $phone, $msg) {
     if (!$cfg['on']) return ['not_configured', $cfg['enabled'] ? 'SMS is turned on but there is no API key yet.' : 'SMS is turned off (admin > SMS).'];
     $raw = preg_replace('/\D/', '', (string)$phone);
     if ($raw === '') return ['no_number', 'The customer has no mobile number.'];
+
+    // Academic Demo / Presentation Mode (instant simulated delivery while PhilSMS Sender ID is Pending approval)
+    if (!empty($cfg['demo'])) {
+        $sid = $cfg['sender'] !== '' ? $cfg['sender'] : 'GLOWSALON';
+        setting_set($db, 'sms_last_ok', date('M j, g:i A') . ' (Demo Mode)');
+        return ['sent', 'Demo SMS sent to ' . $phone . ' via ' . strtoupper($cfg['provider']) . ' [Sender ID: ' . $sid . ']'];
+    }
 
     $provider = $cfg['provider'] ?? 'philsms';
 
