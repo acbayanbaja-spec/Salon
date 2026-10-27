@@ -381,7 +381,7 @@ function appt_post(PDO $db, $onlyStaff) {
 /** Appointments joined with customer/staff/service. $where uses a./c./s./sv. aliases. */
 function appt_rows(PDO $db, $where = '1=1', array $args = [], $limit = 200) {
     $q = $db->prepare("SELECT a.*,c.name cname,c.phone cphone,c.email cemail,s.name sname,sv.name svname,sv.price,sv.duration_min,
-        IF(pm.status='paid','paid',NULL) pstatus,pm.method pmethod,rv.rating,rv.comment rcomment
+        CASE WHEN pm.status='paid' THEN 'paid' ELSE NULL END AS pstatus,pm.method pmethod,rv.rating,rv.comment rcomment
         FROM appointment a JOIN customer c ON c.customer_id=a.customer_id JOIN staff s ON s.staff_id=a.staff_id
         JOIN service sv ON sv.service_id=a.service_id
         LEFT JOIN payment pm ON pm.appointment_id=a.appointment_id LEFT JOIN review rv ON rv.appointment_id=a.appointment_id

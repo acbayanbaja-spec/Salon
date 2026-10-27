@@ -249,8 +249,10 @@ function tok() {
 
 /** Call at the top of every POST handler to verify the CSRF token. */
 function chk() {
-    if (!hash_equals($_SESSION['t'] ?? '', $_POST['t'] ?? '')) {
-        die('Invalid request. Please refresh the page.');
+    if (empty($_SESSION['t']) || empty($_POST['t']) || !hash_equals($_SESSION['t'], $_POST['t'])) {
+        unset($_SESSION['t']);
+        $url = htmlspecialchars($_SERVER['REQUEST_URI'] ?? '');
+        die('Session expired. Please <a href="' . $url . '">click here to refresh the login page</a>.');
     }
 }
 
