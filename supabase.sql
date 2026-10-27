@@ -115,3 +115,10 @@ CREATE TABLE IF NOT EXISTS setting (
   skey VARCHAR(40) PRIMARY KEY,
   svalue TEXT DEFAULT NULL
 );
+
+-- 12. Database-backed PHP sessions (ensures logins & CSRF persist on serverless platforms like Vercel)
+CREATE TABLE IF NOT EXISTS php_sessions (
+  id VARCHAR(128) PRIMARY KEY,
+  data TEXT NOT NULL,
+  last_activity INT NOT NULL
+);

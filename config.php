@@ -87,12 +87,6 @@ define('SMS_SENDER',     getenv('SMS_SENDER') ?: (getenv('PHILSMS_SENDER_ID') ?:
 define('SMS_URL',        getenv('SMS_URL') ?: '');
 // =====================================================
 
-date_default_timezone_set('Asia/Manila');
-ini_set('session.cookie_httponly', '1');
-ini_set('session.use_strict_mode', '1');
-ini_set('session.cookie_samesite', 'Lax');
-session_start();
-
 try {
     $options = [
         PDO::ATTR_ERRMODE            => PDO::ERRMODE_EXCEPTION,
@@ -150,6 +144,78 @@ function db_last_id(PDO $db, string $table = '', string $col = '') {
 function db_ts_expr(PDO $db, string $dCol, string $tCol): string {
     return db_is_pg($db) ? "({$dCol} + {$tCol})" : "TIMESTAMP({$dCol}, {$tCol})";
 }
+
+// =====================================================
+//  DATABASE-BACKED SESSIONS (Essential for Serverless / Vercel & Multi-instance Cloud)
+// =====================================================
+class PdoSessionHandler implements SessionHandlerInterface {
+    private PDO $db;
+    private bool $isPg;
+
+    public function __construct(PDO $db) {
+        $this->db = $db;
+        $this->isPg = db_is_pg($db);
+        $this->ensureTable();
+    }
+
+    private function ensureTable(): void {
+        static $done = false;
+        if ($done) return;
+        try {
+            $this->db->exec("CREATE TABLE IF NOT EXISTS php_sessions (id VARCHAR(128) PRIMARY KEY, data TEXT NOT NULL, last_activity INT NOT NULL)");
+            $done = true;
+        } catch (Exception $e) {}
+    }
+
+    public function open($path, $name): bool { return true; }
+    public function close(): bool { return true; }
+
+    public function read($id): string|false {
+        try {
+            $stmt = $this->db->prepare("SELECT data FROM php_sessions WHERE id = ? AND last_activity >= ?");
+            $stmt->execute([$id, time() - 86400 * 30]);
+            $data = $stmt->fetchColumn();
+            return $data !== false ? (string)$data : '';
+        } catch (Exception $e) {
+            return '';
+        }
+    }
+
+    public function write($id, $data): bool {
+        try {
+            $now = time();
+            $sql = $this->isPg
+                ? "INSERT INTO php_sessions(id, data, last_activity) VALUES(?, ?, ?) ON CONFLICT (id) DO UPDATE SET data = EXCLUDED.data, last_activity = EXCLUDED.last_activity"
+                : "INSERT INTO php_sessions(id, data, last_activity) VALUES(?, ?, ?) ON DUPLICATE KEY UPDATE data = VALUES(data), last_activity = VALUES(last_activity)";
+            return $this->db->prepare($sql)->execute([$id, $data, $now]);
+        } catch (Exception $e) {
+            return false;
+        }
+    }
+
+    public function destroy($id): bool {
+        try {
+            return $this->db->prepare("DELETE FROM php_sessions WHERE id = ?")->execute([$id]);
+        } catch (Exception $e) { return false; }
+    }
+
+    public function gc($max_lifetime): int|false {
+        try {
+            $stmt = $this->db->prepare("DELETE FROM php_sessions WHERE last_activity < ?");
+            $stmt->execute([time() - (int)$max_lifetime]);
+            return $stmt->rowCount();
+        } catch (Exception $e) { return 0; }
+    }
+}
+
+date_default_timezone_set('Asia/Manila');
+ini_set('session.cookie_httponly', '1');
+ini_set('session.use_strict_mode', '1');
+ini_set('session.cookie_samesite', 'Lax');
+
+// Attach DB session handler
+session_set_save_handler(new PdoSessionHandler($db), true);
+session_start();
 
 // Keep clock in same timezone
 if (db_is_pg($db)) {
