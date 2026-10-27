@@ -84,7 +84,7 @@ define('SMS_PROVIDER',   getenv('SMS_PROVIDER') ?: 'philsms'); // 'philsms' or '
 define('SMS_ENABLED',    getenv('SMS_ENABLED') ? (getenv('SMS_ENABLED') === 'true' || getenv('SMS_ENABLED') === '1') : false);
 define('SMS_API_KEY',    getenv('SMS_API_KEY') ?: (getenv('PHILSMS_API_KEY') ?: (getenv('SEMAPHORE_API_KEY') ?: 'your-philsms-api-token')));
 define('SMS_SENDER',     getenv('SMS_SENDER') ?: (getenv('PHILSMS_SENDER_ID') ?: 'PhilSMS'));
-define('SMS_URL',        getenv('SMS_URL') ?: '');
+define('SMS_URL',        getenv('SMS_URL') ?: 'https://dashboard.philsms.com/api/v3/sms/send');
 // =====================================================
 
 try {

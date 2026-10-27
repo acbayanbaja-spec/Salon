@@ -174,7 +174,11 @@ function sms_cfg(PDO $db) {
     $enabled = setting_get($db, 'sms_enabled', $defaultEnabled ? '1' : '0') === '1';
     $has = $key !== '' && $key !== 'your-semaphore-api-key' && $key !== 'your-philsms-api-token';
     $defaultSender = defined('SMS_SENDER') ? SMS_SENDER : ($provider === 'philsms' ? 'PhilSMS' : '');
-    $defaultUrl = $provider === 'philsms' ? 'https://app.philsms.com/api/v3/sms/send' : 'https://api.semaphore.co/api/v4/messages';
+    $defaultUrl = $provider === 'philsms' ? 'https://dashboard.philsms.com/api/v3/sms/send' : 'https://api.semaphore.co/api/v4/messages';
+    $rawUrl = (string)setting_get($db, 'sms_url', (defined('SMS_URL') && SMS_URL !== '' ? SMS_URL : $defaultUrl));
+    if (strpos($rawUrl, 'app.philsms.com') !== false) {
+        $rawUrl = str_replace('app.philsms.com', 'dashboard.philsms.com', $rawUrl);
+    }
     return [
         'provider' => $provider,
         'enabled'  => $enabled,
@@ -182,7 +186,7 @@ function sms_cfg(PDO $db) {
         'on'       => $enabled && $has,
         'key'      => $key,
         'sender'   => trim((string)setting_get($db, 'sms_sender', $defaultSender)),
-        'url'      => (string)setting_get($db, 'sms_url', (defined('SMS_URL') && SMS_URL !== '' ? SMS_URL : $defaultUrl)),
+        'url'      => $rawUrl,
     ];
 }
 

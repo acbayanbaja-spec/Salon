@@ -87,6 +87,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 setting_set($db, 'sms_provider', $prov);
                 if (trim($_POST['key'] ?? '') !== '') setting_set($db, 'sms_key', trim($_POST['key']));
                 setting_set($db, 'sms_sender', $snd);
+                setting_set($db, 'sms_url', $prov === 'philsms' ? 'https://dashboard.philsms.com/api/v3/sms/send' : 'https://api.semaphore.co/api/v4/messages');
                 flash('SMS settings saved. Send a test message below to check them.');
             }
         }
@@ -401,7 +402,7 @@ if ($p === 'sms') {
                     </select>
                 </div>
                 <div><label>API Key / Bearer Token <?= $masked ? "<small>(saved: $masked &mdash; leave blank to keep)</small>" : '' ?></label><input type=password name=key autocomplete=off placeholder="<?= $masked ? 'unchanged' : 'paste your API token / key' ?>"></div>
-                <div><label>Sender ID <small>(PhilSMS default or custom registered)</small></label><input name=sender maxlength=11 value="<?= e($cfg['sender']) ?>" placeholder="PhilSMS"></div>
+                <div><label>Sender ID <small>(from PhilSMS &gt; Sending &gt; Sender ID)</small></label><input name=sender maxlength=11 value="<?= e($cfg['sender']) ?>" placeholder="e.g. your approved SID"></div>
                 <div><button>Save</button></div>
             </div>
         </form>
